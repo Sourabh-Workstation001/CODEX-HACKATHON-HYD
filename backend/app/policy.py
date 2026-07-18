@@ -132,6 +132,16 @@ def generate_policy(draft: PolicyDraft) -> PolicyArtifact:
 class SafePolicyRuntime:
     """Pure evaluator for the built-in artifact; no generated source is executed in-process."""
 
+    @staticmethod
+    def _hour_value(value: Any, default: int) -> int:
+        """Accept both current integer hours and legacy HH:MM artifact values."""
+        if isinstance(value, str) and ":" in value:
+            value = value.split(":", 1)[0]
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return default
+
     def evaluate(self, artifact: PolicyArtifact, event: NormalizedEvent, *, seen: set[str] | None = None) -> PolicyDecision:
         if seen is not None and event.dedupe_key in seen:
             return PolicyDecision(matched=False, severity=artifact.severity, reason_code="DUPLICATE_EVENT", explanation="The event was already evaluated in this run.", evidence={"dedupe_key": event.dedupe_key}, action_ref=artifact.action_ref)
@@ -146,8 +156,8 @@ class SafePolicyRuntime:
         activity = event.event_type in set(artifact.required_event_types)
         excluded_ids = set(artifact.intent.get("exclusions", {}).get("actor_ids", []))
         excluded = event.actor.service_account or event.actor.id in excluded_ids
-        quiet_start = int(artifact.intent.get("quiet_start", 1))
-        quiet_end = int(artifact.intent.get("quiet_end", 5))
+        quiet_start = self._hour_value(artifact.intent.get("quiet_start", 1), 1)
+        quiet_end = self._hour_value(artifact.intent.get("quiet_end", 5), 5)
         matched = activity and quiet_start <= local_hour < quiet_end and not excluded
         return PolicyDecision(
             matched=matched, severity=artifact.severity,
